@@ -57,4 +57,9 @@ config PREEMPT
 endchoice
 
 config PREEMPT_COUNT
-       bool
+	bool
+
+config SCHED_CORE
+	bool
+	default y
+	depends on SCHED_SMT
