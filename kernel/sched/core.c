@@ -106,6 +106,10 @@ static inline bool __prio_less(struct task_struct *a, struct task_struct *b, boo
 
 	int pa = __task_prio(a), pb = __task_prio(b);
 
+	trace_printk("(%s/%d;%d,%Lu,%Lu) ?< (%s/%d;%d,%Lu,%Lu)\n",
+		     a->comm, a->pid, pa, a->se.vruntime, a->dl.deadline,
+		     b->comm, b->pid, pa, b->se.vruntime, b->dl.deadline);
+
 	if (-pa < -pb)
 		return true;
 
@@ -264,6 +268,8 @@ static void __sched_core_enable(void)
 
 	static_branch_enable(&__sched_core_enabled);
 	stop_machine(__sched_core_stopper, (void *)true, NULL);
+
+	printk("core sched enabled\n");
 }
 
 static void __sched_core_disable(void)
@@ -272,6 +278,8 @@ static void __sched_core_disable(void)
 
 	stop_machine(__sched_core_stopper, (void *)false, NULL);
 	static_branch_disable(&__sched_core_enabled);
+
+	printk("core sched disabled\n");
 }
 
 void sched_core_get(void)
@@ -3646,6 +3654,14 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 			put_prev_task(rq, prev);
 			set_next_task(rq, next);
 		}
+
+		trace_printk("pick pre selected (%u %u %u): %s/%d %lx\n",
+			     rq->core->core_task_seq,
+			     rq->core->core_pick_seq,
+			     rq->core_sched_seq,
+			     next->comm, next->pid,
+			     next->core_cookie);
+
 		return next;
 	}
 
@@ -3717,6 +3733,9 @@ again:
 				next = p;
 				rq->core_pick = NULL;
  
+				trace_printk("unconstrained pick: %s/%d %lx\n",
+					     next->comm, next->pid, next->core_cookie);
+
 				/*
 				 * If the sibling is idling, we might want to wake it
 				 * so that it can check for any runnable tasks that did
@@ -3727,6 +3746,8 @@ again:
 					rq_j->core_pick = NULL;
 					if (j != cpu &&
 					    is_idle_task(rq_j->curr) && rq_j->nr_running) {
+						trace_printk("IPI(%d->%d[%d]) idle preempt\n",
+							     cpu, j, rq_j->nr_running);
 						resched_curr(rq_j);
 					}
 				}
@@ -3737,6 +3758,9 @@ again:
 				occ++;
 
 			rq_i->core_pick = p;
+
+			trace_printk("cpu(%d): selected: %s/%d %lx\n",
+				     i, p->comm, p->pid, p->core_cookie);
 
 			/*
 			 * If this new candidate is of higher priority than the
@@ -3751,6 +3775,8 @@ again:
 
 				rq->core->core_cookie = p->core_cookie;
 				max = p;
+
+				trace_printk("max: %s/%d %lx\n", max->comm, max->pid, max->core_cookie);
 
 				if (old_max && !cookie_match(old_max, p)) {
 					for_each_cpu(j, smt_mask) {
@@ -3787,12 +3813,16 @@ next_class:;
 		if (i == cpu)
 			continue;
 
-		if (rq_i->curr != rq_i->core_pick)
+		if (rq_i->curr != rq_i->core_pick) {
+			trace_printk("IPI(%d)\n", i);
 			resched_curr(rq_i);
+		}
 	}
 
 	rq->core_sched_seq = rq->core->core_pick_seq;
 	next = rq->core_pick;
+
+	trace_printk("picked: %s/%d %lx\n", next->comm, next->pid, next->core_cookie);
 
 done:
 	set_next_task(rq, next);
@@ -3829,6 +3859,10 @@ static bool try_steal_cookie(int this, int that)
 
 		if (p->core_occupation > dst->idle->core_occupation)
 			goto next;
+
+		trace_printk("core fill: %s/%d (%d->%d) %d %d %lx\n",
+			     p->comm, p->pid, that, this,
+			     p->core_occupation, dst->idle->core_occupation, cookie);
 
 		p->on_rq = TASK_ON_RQ_MIGRATING;
 		deactivate_task(src, p, 0);
@@ -6418,6 +6452,8 @@ int sched_cpu_starting(unsigned int cpu)
 		WARN_ON_ONCE(rq->core && rq->core != core_rq);
 		rq->core = core_rq;
 	}
+
+	printk("core: %d -> %d\n", cpu, cpu_of(core_rq));
 #endif /* CONFIG_SCHED_CORE */
 
 	sched_rq_cpu_starting(cpu);
