@@ -1,0 +1,30 @@
+linux (5.1-0.coresched.1) unstable; urgency=low
+
+  Core scheduling patched on top of 5.0
+
+ -- Vineeth Remanan Pillai <vpillai@digitalocean.com>  Tue, 09 Apr 2019 21:39:30 +0000
+
+linux (5.0-0.coresched.1) unstable; urgency=low
+
+  Core scheduling patched on top of 5.0
+
+ -- Vineeth Remanan Pillai <vpillai@digitalocean.com>  Mon, 04 Mar 2019 19:21:09 +0000
+
+linux (4.19-6.ig.3) unstable; urgency=low
+
+  Rebase to 4.19-6
+
+ -- Vineeth Remanan Pillai <vpillai@digitalocean.com>  Tue, 04 Dec 2018 16:45:54 +0000
+
+linux (4.19-0rc3.ig.2) unstable; urgency=low
+
+  Bump version for mlx5 boot fix
+
+ -- Johannes Erdfelt <jerdfelt@digitalocean.com>  Wed, 12 Sep 2018 10:56:07 -0700
+
+linux (4.19-0rc3.1) unstable; urgency=low
+
+  Mainline build at commit: v4.19-rc3
+
+ -- Mainline Build <kernel@tangerine>  Sun, 09 Sep 2018 21:31:07 -0400
+
