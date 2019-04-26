@@ -3597,18 +3597,7 @@ static struct task_struct *
 pick_task(struct rq *rq, const struct sched_class *class, struct task_struct *max)
 {
 	struct task_struct *class_pick, *cookie_pick;
-	unsigned long cookie = 0UL;
-
-	/*
-	 * We must not rely on rq->core->core_cookie here, because we fail to reset
-	 * rq->core->core_cookie on new picks, such that we can detect if we need
-	 * to do single vs multi rq task selection.
-	 */
-
-	if (max && max->core_cookie) {
-		WARN_ON_ONCE(rq->core->core_cookie != max->core_cookie);
-		cookie = max->core_cookie;
-	}
+	unsigned long cookie = rq->core->core_cookie;
 
 	class_pick = class->pick_task(rq);
 	if (!cookie)
@@ -3635,6 +3624,7 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 	struct task_struct *next, *max = NULL;
 	const struct sched_class *class;
 	const struct cpumask *smt_mask;
+	unsigned long prev_cookie;
 	int i, j, cpu, occ = 0;
 
 	if (!sched_core_enabled(rq))
@@ -3683,8 +3673,10 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 	 * 'Fix' this by also increasing @task_seq for every pick.
 	 */
 	rq->core->core_task_seq++;
+	prev_cookie = rq->core->core_cookie;
 
 	/* reset state */
+	rq->core->core_cookie = 0UL;
 	for_each_cpu(i, smt_mask) {
 		struct rq *rq_i = cpu_rq(i);
 
@@ -3719,7 +3711,7 @@ again:
 				 * If there weren't no cookies; we don't need
 				 * to bother with the other siblings.
 				 */
-				if (i == cpu && !rq->core->core_cookie)
+				if (i == cpu && !prev_cookie)
 					goto next_class;
 
 				continue;
@@ -3729,9 +3721,10 @@ again:
 			 * Optimize the 'normal' case where there aren't any
 			 * cookies and we don't need to sync up.
 			 */
-			if (i == cpu && !rq->core->core_cookie && !p->core_cookie) {
+			if (i == cpu && !prev_cookie && !p->core_cookie) {
 				next = p;
 				rq->core_pick = NULL;
+				rq->core->core_cookie = 0UL;
  
 				trace_printk("unconstrained pick: %s/%d %lx\n",
 					     next->comm, next->pid, next->core_cookie);
