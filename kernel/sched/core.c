@@ -3736,19 +3736,21 @@ again:
 				trace_printk("unconstrained pick: %s/%d %lx\n",
 					     next->comm, next->pid, next->core_cookie);
 
-				/*
-				 * If the sibling is idling, we might want to wake it
-				 * so that it can check for any runnable tasks that did
-				 * not get a chance to run due to previous task matching.
-				 */
-				for_each_cpu(j, smt_mask) {
-					struct rq *rq_j = cpu_rq(j);
-					rq_j->core_pick = NULL;
-					if (j != cpu &&
-					    is_idle_task(rq_j->curr) && rq_j->nr_running) {
-						trace_printk("IPI(%d->%d[%d]) idle preempt\n",
-							     cpu, j, rq_j->nr_running);
-						resched_curr(rq_j);
+				if (sched_feat(CORESCHED_IDLE_PREEMPT)) {
+					/*
+					 * If the sibling is idling, we might want to wake it
+					 * so that it can check for any runnable tasks that did
+					 * not get a chance to run due to previous task matching.
+					 */
+					for_each_cpu(j, smt_mask) {
+						struct rq *rq_j = cpu_rq(j);
+						rq_j->core_pick = NULL;
+						if (j != cpu &&
+						    is_idle_task(rq_j->curr) && rq_j->nr_running) {
+							trace_printk("IPI(%d->%d[%d]) idle preempt\n",
+								     cpu, j, rq_j->nr_running);
+							resched_curr(rq_j);
+						}
 					}
 				}
 				goto done;
