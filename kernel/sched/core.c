@@ -3593,6 +3593,13 @@ static inline bool cookie_match(struct task_struct *a, struct task_struct *b)
 }
 
 // XXX fairness/fwd progress conditions
+/*
+ * Returns
+ * - NULL if there is no runnable task for this class.
+ * - the highest priority task for this runqueue if it matches
+ *   rq->core->core_cookie or its priority is greater than max.
+ * - Else returns idle_task.
+ */
 static struct task_struct *
 pick_task(struct rq *rq, const struct sched_class *class, struct task_struct *max)
 {
@@ -3600,19 +3607,36 @@ pick_task(struct rq *rq, const struct sched_class *class, struct task_struct *ma
 	unsigned long cookie = rq->core->core_cookie;
 
 	class_pick = class->pick_task(rq);
-	if (!cookie)
+	if (!class_pick)
+		return NULL;
+
+	if (!cookie) {
+		/*
+		 * If class_pick is tagged, return it only if it has
+		 * higher priority than max.
+		 */
+		if (max && class_pick->core_cookie &&
+		    core_prio_less(class_pick, max))
+			return idle_sched_class.pick_task(rq);
+
+		return class_pick;
+	}
+
+	/*
+	 * If there is a cooke match here, return early.
+	 */
+	if (class_pick->core_cookie == cookie)
 		return class_pick;
 
 	cookie_pick = sched_core_find(rq, cookie);
-	if (!class_pick)
-		return cookie_pick;
 
 	/*
 	 * If class > max && class > cookie, it is the highest priority task on
 	 * the core (so far) and it must be selected, otherwise we must go with
 	 * the cookie pick in order to satisfy the constraint.
 	 */
-	if (cpu_prio_less(cookie_pick, class_pick) && core_prio_less(max, class_pick))
+	if (cpu_prio_less(cookie_pick, class_pick) &&
+	    (!max || core_prio_less(max, class_pick)))
 		return class_pick;
 
 	return cookie_pick;
@@ -3682,8 +3706,16 @@ pick_next_task(struct rq *rq, struct task_struct *prev, struct rq_flags *rf)
 
 		rq_i->core_pick = NULL;
 
-		if (i != cpu)
+		if (i != cpu) {
 			update_rq_clock(rq_i);
+
+			/*
+			 * If a sibling is idle, we can initiate an
+			 * unconstrained pick.
+			 */
+			if (is_idle_task(rq_i->curr) && prev_cookie)
+				prev_cookie = 0UL;
+		}
 	}
 
 	/*
@@ -3760,12 +3792,14 @@ again:
 			/*
 			 * If this new candidate is of higher priority than the
 			 * previous; and they're incompatible; we need to wipe
-			 * the slate and start over.
+			 * the slate and start over. pick_task makes sure that
+			 * p's priority is more than max if it doesn't match
+			 * max's cookie.
 			 *
 			 * NOTE: this is a linear max-filter and is thus bounded
 			 * in execution time.
 			 */
-			if (!max || core_prio_less(max, p)) {
+			if (!max || !cookie_match(max, p)) {
 				struct task_struct *old_max = max;
 
 				rq->core->core_cookie = p->core_cookie;
@@ -3773,7 +3807,7 @@ again:
 
 				trace_printk("max: %s/%d %lx\n", max->comm, max->pid, max->core_cookie);
 
-				if (old_max && !cookie_match(old_max, p)) {
+				if (old_max) {
 					for_each_cpu(j, smt_mask) {
 						if (j == i)
 							continue;
@@ -3818,6 +3852,23 @@ next_class:;
 	next = rq->core_pick;
 
 	trace_printk("picked: %s/%d %lx\n", next->comm, next->pid, next->core_cookie);
+
+	/* make sure we didn't break L1TF */
+	for_each_cpu(i, smt_mask) {
+		struct rq *rq_i = cpu_rq(i);
+		if (i == cpu)
+			continue;
+
+		if (likely(cookie_match(next, rq_i->core_pick)))
+			continue;
+
+		trace_printk("[%d]: cookie mismatch. %s/%d/0x%lx/0x%lx\n",
+			     rq_i->cpu, rq_i->core_pick->comm,
+			     rq_i->core_pick->pid,
+			     rq_i->core_pick->core_cookie,
+			     rq_i->core->core_cookie);
+		WARN_ON_ONCE(1);
+	}
 
 done:
 	set_next_task(rq, next);
